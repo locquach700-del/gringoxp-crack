@@ -1,6 +1,6 @@
 import os, re
 
-print("[*] GRINGOXP crack v5 - skip login show main UI")
+print("[*] GRINGOXP crack v6 - force main panel visible")
 
 def replace_method(path, sig, body):
     with open(path, encoding="utf-8", errors="ignore") as f:
@@ -87,34 +87,37 @@ for root, dirs, files in os.walk("."):
                 c = f.read()
             orig = c
 
-            # 1) After loadUrl - hide WebView, set logged-in flags, refresh UI
             load_sig = "invoke-virtual {v1, v2, v0}, Landroid/webkit/WebView;->loadUrl(Ljava/lang/String;Ljava/util/Map;)V"
             if load_sig in c:
                 inject = (
-                    load_sig + "\n"
-                    "\n"
-                    "    # --- crack: skip login UI ---\n"
+                    load_sig + "\n\n"
+                    "    # crack v6: hide login layout, show main panel\n"
                     "    const/16 v3, 0x8\n"
                     "    invoke-virtual {v1, v3}, Landroid/webkit/WebView;->setVisibility(I)V\n"
+                    "    iget-object v4, v7, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->C:Landroid/widget/LinearLayout;\n"
+                    "    if-eqz v4, :cond_crack_skip\n"
+                    "    invoke-virtual {v4, v3}, Landroid/view/View;->setVisibility(I)V\n"
+                    "    :cond_crack_skip\n"
                     "    const/4 v3, 0x1\n"
                     "    iput-boolean v3, v7, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->b0:Z\n"
+                    "    const/4 v4, 0x0\n"
+                    "    iput-boolean v4, v7, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->e0:Z\n"
                     "    sput-boolean v3, Lp/Ag;->l:Z\n"
                     "    sput-boolean v3, Lp/Ag;->m:Z\n"
-                    "    invoke-static {}, Lakn/main/LicenseSession;->permissions()I\n"
+                    "    iget-object v5, v7, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->A:Landroid/widget/LinearLayout;\n"
+                    "    if-eqz v5, :cond_crack_skip2\n"
+                    "    invoke-virtual {v5, v4}, Landroid/view/View;->setVisibility(I)V\n"
+                    "    :cond_crack_skip2\n"
                     "    invoke-virtual {v7}, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->E()V\n"
                     "    invoke-virtual {v7}, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->D()V\n"
                 )
                 c = c.replace(load_sig, inject, 1)
-                print("[OK] inject after loadUrl")
+                print("[OK] inject hide C show A")
                 n += 1
-
-            # 2) Don't blank the URL - keep original so layout still builds; we hide WebView
-            # (no about:blank)
 
             if c != orig:
                 open(p, "w", encoding="utf-8").write(c)
 
-        # Force Ag flags in clinit
         if name == "Ag.smali":
             with open(p, encoding="utf-8", errors="ignore") as f:
                 c = f.read()
@@ -135,7 +138,7 @@ for root, dirs, files in os.walk("."):
                         )
                         c = c[:ret] + inject + c[ret:]
                         open(p, "w", encoding="utf-8").write(c)
-                        print("[OK] Ag.l/m true in clinit")
+                        print("[OK] Ag.l/m true")
                         n += 1
 
 print(f"[*] total: {n}")
