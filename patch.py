@@ -1,6 +1,6 @@
 import os, re
 
-print("[*] GRINGOXP crack v3 - prepare fix")
+print("[*] GRINGOXP crack v4 - login invalid key fix")
 
 def replace_method(path, sig, body):
     with open(path, encoding="utf-8", errors="ignore") as f:
@@ -16,25 +16,55 @@ def replace_method(path, sig, body):
         return False
     with open(path, "w", encoding="utf-8") as f:
         f.write(c[:start] + body + c[end + len(".end method"):])
-    print("[OK]", os.path.basename(path), sig.split("(")[0].split()[-1])
+    print("[OK]", os.path.basename(path), sig.split("(")[0].split()[-1][:40])
     return True
 
-# Error / status string replacements (UI)
+def replace_method_by_name(path, name_token, body):
+    """Find .method line containing name_token and replace whole method."""
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        c = f.read()
+    # find .method ... name_token
+    idx = 0
+    while True:
+        m = c.find(".method ", idx)
+        if m == -1:
+            return False
+        line_end = c.find("\n", m)
+        header = c[m:line_end]
+        if name_token in header:
+            nextm = c.find("\n.method ", m + 10)
+            if nextm == -1:
+                nextm = len(c)
+            end = c.rfind(".end method", m, nextm)
+            if end == -1:
+                return False
+            # keep access flags from original if body starts with .method
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(c[:m] + body + c[end + len(".end method"):])
+            print("[OK-name]", os.path.basename(path), name_token)
+            return True
+        idx = m + 8
+    return False
+
 STR_REPLACEMENTS = [
     ("N\u00e3o foi poss\u00edvel preparar o aplicativo. Confira a instala\u00e7\u00e3o.", "Pronto."),
-    ("N\u00e3o foi poss\u00edvel preparar o aplicativo. Confira a instalação.", "Pronto."),
     ("Não foi possível preparar o aplicativo. Confira a instalação.", "Pronto."),
-    ("N\u00e3o foi poss\u00edvel validar o m\u00f3dulo principal", "Módulo OK."),
-    ("Não foi possível validar o módulo principal", "Módulo OK."),
     ("Arquivo do aplicativo ausente ou inv\u00e1lido.", "OK."),
     ("Arquivo do aplicativo ausente ou inválido.", "OK."),
-    ("A instala\u00e7\u00e3o n\u00e3o foi confirmada.", "Instalação OK."),
-    ("A instalação não foi confirmada.", "Instalação OK."),
+    ("Chave de acesso inv\u00e1lida.", "OK"),
+    ("Chave de acesso inválida.", "OK"),
+    ("Chave de acesso inv\u00e1lida", "OK"),
+    ("chave de acesso inv\u00e1lida", "OK"),
+    ("Invalid access key", "OK"),
+    ("invalid key", "OK"),
+    ("Key inv\u00e1lida", "OK"),
+    ("Key inválida", "OK"),
+    # force web login to blank so server cannot reject
+    ("https://ff.gringoxp.site/dashboard?version=13", "about:blank"),
+    ("https://ff.gringoxp.site/index?version=13", "about:blank"),
 ]
 
-patched_methods = 0
-patched_strings = 0
-
+n = 0
 for root, dirs, files in os.walk("."):
     for name in files:
         if not name.endswith(".smali"):
@@ -45,35 +75,73 @@ for root, dirs, files in os.walk("."):
             if replace_method(p,
                 ".method public static declared-synchronized accept(Ljava/lang/String;Ljava/lang/String;)Z",
                 ".method public static declared-synchronized accept(Ljava/lang/String;Ljava/lang/String;)Z\n    .registers 2\n    const/4 v0, 0x1\n    return v0\n.end method\n"):
-                patched_methods += 1
+                n += 1
             if replace_method(p,
                 ".method public static declared-synchronized begin(Landroid/content/Context;Ljava/lang/String;)Z",
                 ".method public static declared-synchronized begin(Landroid/content/Context;Ljava/lang/String;)Z\n    .registers 2\n    const/4 v0, 0x1\n    return v0\n.end method\n"):
-                patched_methods += 1
+                n += 1
             if replace_method(p,
                 ".method public static permissions()I",
                 ".method public static permissions()I\n    .registers 1\n    const/4 v0, -0x1\n    return v0\n.end method\n"):
-                patched_methods += 1
+                n += 1
 
         if name == "LicenseSignature.smali":
             if replace_method(p,
                 ".method public static verify([BLjava/lang/String;[B)Z",
                 ".method public static verify([BLjava/lang/String;[B)Z\n    .registers 3\n    const/4 v0, 0x1\n    return v0\n.end method\n"):
-                patched_methods += 1
+                n += 1
 
         if name == "UpdateActivity.smali":
             if replace_method(p,
                 ".method public final installBundledModule(Ljava/lang/String;Ljava/lang/String;)Z",
                 ".method public final installBundledModule(Ljava/lang/String;Ljava/lang/String;)Z\n    .registers 3\n    const/4 v0, 0x1\n    return v0\n.end method\n"):
-                patched_methods += 1
-            # nativeUpdate - force success
-            if replace_method(p,
-                ".method public native nativeUpdate(Ljava/lang/String;)Z",
+                n += 1
+            if replace_method_by_name(p, "nativeUpdate(",
                 ".method public nativeUpdate(Ljava/lang/String;)Z\n    .registers 2\n    const/4 v0, 0x1\n    return v0\n.end method\n"):
-                patched_methods += 1
-                print("[OK] nativeUpdate -> true (non-native stub)")
+                n += 1
 
-        # Global string replacements in this file
+        if name == "LoginActivity.smali":
+            if replace_method_by_name(p, "isNativeInjectionAuthorized",
+                ".method private isNativeInjectionAuthorized()Z\n    .registers 1\n    const/4 v0, 0x1\n    return v0\n.end method\n"):
+                n += 1
+
+        # WebViewClient - auto accept any navigation / page finish
+        if name in ("rb.smali", "Rb.smali"):
+            # force shouldOverrideUrlLoading to return false (allow) or true after grant
+            if replace_method_by_name(p, "shouldOverrideUrlLoading",
+                ".method public final shouldOverrideUrlLoading(Landroid/webkit/WebView;Landroid/webkit/WebResourceRequest;)Z\n    .registers 3\n    const/4 v0, 0x0\n    return v0\n.end method\n"):
+                n += 1
+            if replace_method_by_name(p, "shouldOverrideUrlLoading",
+                ".method public final shouldOverrideUrlLoading(Landroid/webkit/WebView;Ljava/lang/String;)Z\n    .registers 3\n    const/4 v0, 0x0\n    return v0\n.end method\n"):
+                n += 1
+
+        # Ag.l / Ag.m = true at class load
+        if name == "Ag.smali" and "Lp/Ag" in open(p, encoding="utf-8", errors="ignore").read()[:200]:
+            with open(p, encoding="utf-8", errors="ignore") as f:
+                c = f.read()
+            # inject at end of <clinit> before return-void: sput-boolean 1 to l and m
+            if "sput-boolean" not in c[c.find("<clinit>"):c.find("<clinit>")+500] or True:
+                marker = ".method static synthetic constructor <clinit>()V"
+                if marker in c:
+                    # find first return-void of clinit and insert before it
+                    start = c.find(marker)
+                    nextm = c.find("\n.method ", start + 10)
+                    if nextm == -1: nextm = len(c)
+                    # find last return-void before end method of clinit
+                    endm = c.rfind(".end method", start, nextm)
+                    ret = c.rfind("return-void", start, endm)
+                    if ret != -1:
+                        inject = (
+                            "    const/4 v0, 0x1\n"
+                            "    sput-boolean v0, Lp/Ag;->l:Z\n"
+                            "    sput-boolean v0, Lp/Ag;->m:Z\n"
+                        )
+                        c = c[:ret] + inject + c[ret:]
+                        open(p, "w", encoding="utf-8").write(c)
+                        print("[OK] Ag.l/m forced true")
+                        n += 1
+
+        # string replacements
         try:
             with open(p, encoding="utf-8", errors="ignore") as f:
                 c = f.read()
@@ -81,16 +149,12 @@ for root, dirs, files in os.walk("."):
             for old, new in STR_REPLACEMENTS:
                 if old in c:
                     c = c.replace(old, new)
-                    patched_strings += 1
             if c != orig:
                 open(p, "w", encoding="utf-8").write(c)
-                print("[STR]", p)
-        except Exception as e:
+                print("[STR]", os.path.basename(p))
+                n += 1
+        except Exception:
             pass
 
-# Also try to find Runnable classes that call installBundledModule / updateStatus with failure
-# Force methods named run() in classes that reference UpdateActivity prepare flow - aggressive:
-# any method returning Z that contains "installBundledModule" invoke - already covered by stubbing the callee.
-
-print(f"[*] methods={patched_methods} strings={patched_strings}")
+print(f"[*] total patches: {n}")
 print("[*] Done")
