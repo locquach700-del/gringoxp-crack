@@ -1,6 +1,6 @@
 import os, re
 
-print("[*] GRINGOXP crack v4 - login invalid key fix")
+print("[*] GRINGOXP crack v5 - skip login show main UI")
 
 def replace_method(path, sig, body):
     with open(path, encoding="utf-8", errors="ignore") as f:
@@ -16,14 +16,12 @@ def replace_method(path, sig, body):
         return False
     with open(path, "w", encoding="utf-8") as f:
         f.write(c[:start] + body + c[end + len(".end method"):])
-    print("[OK]", os.path.basename(path), sig.split("(")[0].split()[-1][:40])
+    print("[OK]", os.path.basename(path), sig.split("(")[0].split()[-1][:50])
     return True
 
 def replace_method_by_name(path, name_token, body):
-    """Find .method line containing name_token and replace whole method."""
     with open(path, encoding="utf-8", errors="ignore") as f:
         c = f.read()
-    # find .method ... name_token
     idx = 0
     while True:
         m = c.find(".method ", idx)
@@ -38,31 +36,11 @@ def replace_method_by_name(path, name_token, body):
             end = c.rfind(".end method", m, nextm)
             if end == -1:
                 return False
-            # keep access flags from original if body starts with .method
             with open(path, "w", encoding="utf-8") as f:
                 f.write(c[:m] + body + c[end + len(".end method"):])
             print("[OK-name]", os.path.basename(path), name_token)
             return True
         idx = m + 8
-    return False
-
-STR_REPLACEMENTS = [
-    ("N\u00e3o foi poss\u00edvel preparar o aplicativo. Confira a instala\u00e7\u00e3o.", "Pronto."),
-    ("Não foi possível preparar o aplicativo. Confira a instalação.", "Pronto."),
-    ("Arquivo do aplicativo ausente ou inv\u00e1lido.", "OK."),
-    ("Arquivo do aplicativo ausente ou inválido.", "OK."),
-    ("Chave de acesso inv\u00e1lida.", "OK"),
-    ("Chave de acesso inválida.", "OK"),
-    ("Chave de acesso inv\u00e1lida", "OK"),
-    ("chave de acesso inv\u00e1lida", "OK"),
-    ("Invalid access key", "OK"),
-    ("invalid key", "OK"),
-    ("Key inv\u00e1lida", "OK"),
-    ("Key inválida", "OK"),
-    # force web login to blank so server cannot reject
-    ("https://ff.gringoxp.site/dashboard?version=13", "about:blank"),
-    ("https://ff.gringoxp.site/index?version=13", "about:blank"),
-]
 
 n = 0
 for root, dirs, files in os.walk("."):
@@ -105,29 +83,48 @@ for root, dirs, files in os.walk("."):
                 ".method private isNativeInjectionAuthorized()Z\n    .registers 1\n    const/4 v0, 0x1\n    return v0\n.end method\n"):
                 n += 1
 
-        # WebViewClient - auto accept any navigation / page finish
-        if name in ("rb.smali", "Rb.smali"):
-            # force shouldOverrideUrlLoading to return false (allow) or true after grant
-            if replace_method_by_name(p, "shouldOverrideUrlLoading",
-                ".method public final shouldOverrideUrlLoading(Landroid/webkit/WebView;Landroid/webkit/WebResourceRequest;)Z\n    .registers 3\n    const/4 v0, 0x0\n    return v0\n.end method\n"):
-                n += 1
-            if replace_method_by_name(p, "shouldOverrideUrlLoading",
-                ".method public final shouldOverrideUrlLoading(Landroid/webkit/WebView;Ljava/lang/String;)Z\n    .registers 3\n    const/4 v0, 0x0\n    return v0\n.end method\n"):
-                n += 1
-
-        # Ag.l / Ag.m = true at class load
-        if name == "Ag.smali" and "Lp/Ag" in open(p, encoding="utf-8", errors="ignore").read()[:200]:
             with open(p, encoding="utf-8", errors="ignore") as f:
                 c = f.read()
-            # inject at end of <clinit> before return-void: sput-boolean 1 to l and m
-            if "sput-boolean" not in c[c.find("<clinit>"):c.find("<clinit>")+500] or True:
+            orig = c
+
+            # 1) After loadUrl - hide WebView, set logged-in flags, refresh UI
+            load_sig = "invoke-virtual {v1, v2, v0}, Landroid/webkit/WebView;->loadUrl(Ljava/lang/String;Ljava/util/Map;)V"
+            if load_sig in c:
+                inject = (
+                    load_sig + "\n"
+                    "\n"
+                    "    # --- crack: skip login UI ---\n"
+                    "    const/16 v3, 0x8\n"
+                    "    invoke-virtual {v1, v3}, Landroid/webkit/WebView;->setVisibility(I)V\n"
+                    "    const/4 v3, 0x1\n"
+                    "    iput-boolean v3, v7, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->b0:Z\n"
+                    "    sput-boolean v3, Lp/Ag;->l:Z\n"
+                    "    sput-boolean v3, Lp/Ag;->m:Z\n"
+                    "    invoke-static {}, Lakn/main/LicenseSession;->permissions()I\n"
+                    "    invoke-virtual {v7}, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->E()V\n"
+                    "    invoke-virtual {v7}, Lio/gringoxp/proxy/garena/freefire/LoginActivity;->D()V\n"
+                )
+                c = c.replace(load_sig, inject, 1)
+                print("[OK] inject after loadUrl")
+                n += 1
+
+            # 2) Don't blank the URL - keep original so layout still builds; we hide WebView
+            # (no about:blank)
+
+            if c != orig:
+                open(p, "w", encoding="utf-8").write(c)
+
+        # Force Ag flags in clinit
+        if name == "Ag.smali":
+            with open(p, encoding="utf-8", errors="ignore") as f:
+                c = f.read()
+            if "Lp/Ag" in c[:300] and "sput-boolean v0, Lp/Ag;->l:Z" not in c:
                 marker = ".method static synthetic constructor <clinit>()V"
-                if marker in c:
-                    # find first return-void of clinit and insert before it
-                    start = c.find(marker)
+                start = c.find(marker)
+                if start != -1:
                     nextm = c.find("\n.method ", start + 10)
-                    if nextm == -1: nextm = len(c)
-                    # find last return-void before end method of clinit
+                    if nextm == -1:
+                        nextm = len(c)
                     endm = c.rfind(".end method", start, nextm)
                     ret = c.rfind("return-void", start, endm)
                     if ret != -1:
@@ -138,23 +135,8 @@ for root, dirs, files in os.walk("."):
                         )
                         c = c[:ret] + inject + c[ret:]
                         open(p, "w", encoding="utf-8").write(c)
-                        print("[OK] Ag.l/m forced true")
+                        print("[OK] Ag.l/m true in clinit")
                         n += 1
 
-        # string replacements
-        try:
-            with open(p, encoding="utf-8", errors="ignore") as f:
-                c = f.read()
-            orig = c
-            for old, new in STR_REPLACEMENTS:
-                if old in c:
-                    c = c.replace(old, new)
-            if c != orig:
-                open(p, "w", encoding="utf-8").write(c)
-                print("[STR]", os.path.basename(p))
-                n += 1
-        except Exception:
-            pass
-
-print(f"[*] total patches: {n}")
+print(f"[*] total: {n}")
 print("[*] Done")
